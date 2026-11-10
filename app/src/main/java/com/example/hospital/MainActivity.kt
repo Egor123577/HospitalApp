@@ -57,11 +57,11 @@ fun App(db: AppDb) {
                     { o, v -> d.save(o, Department(o?.departmentId ?: 0, v[0].req("Название"), v[1].opt()?.num("Этаж")?.toInt(), v[2].opt())) },
                     { d.delete(it) }) }
             3 -> { val d = db.appointments(); val l by d.all().collectAsState(emptyList())
-                CrudScreen(l, listOf("ID пациента", "ID врача", "Дата и время (ГГГГ-ММ-ДД ЧЧ:ММ)", "Статус (запланирован/завершён/отменён/не явился)", "Причина"),
+                CrudScreen(l, listOf("ID пациента", "ID врача", "Дата и время (ГГГГ-ММ-ДД ЧЧ:ММ)", "Статус (запланирован/пришёл/завершён/отменён/не явился)", "Причина", "Кабинет", "Время прихода (ЧЧ:ММ)"),
                     { "${it.apptDatetime} • ${it.status}" }, { "пациент №${it.patientId}, врач №${it.doctorId}. ${it.reason ?: ""}" },
-                    { listOf(it.patientId.toString(), it.doctorId.toString(), it.apptDatetime, it.status, it.reason ?: "") },
+                    { listOf(it.patientId.toString(), it.doctorId.toString(), it.apptDatetime, it.status, it.reason ?: "", it.room ?: "", it.arrivedAt ?: "") },
                     { o, v -> d.save(o, Appointment(o?.appointmentId ?: 0, v[0].num("ID пациента"), v[1].num("ID врача"), v[2].req("Дата"),
-                        v[3].oneOf("Статус", "запланирован", "завершён", "отменён", "не явился"), v[4].opt())) },
+                        v[3].oneOf("Статус", "запланирован", "пришёл", "завершён", "отменён", "не явился"), v[4].opt(), v[5].opt(), v[6].opt())) },
                     { d.delete(it) }) }
             else -> { val d = db.hospitalizations(); val l by d.all().collectAsState(emptyList())
                 CrudScreen(l, listOf("ID пациента", "ID койки", "ID врача", "ID диагноза", "Дата поступления", "Дата выписки", "Статус (проходит лечение/выписан/переведён)"),

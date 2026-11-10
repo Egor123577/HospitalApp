@@ -47,7 +47,8 @@ data class Hospitalization(@PrimaryKey(autoGenerate = true) val hospitalizationI
     foreignKeys = [ForeignKey(Patient::class, ["patientId"], ["patientId"], onDelete = C),
         ForeignKey(Doctor::class, ["doctorId"], ["doctorId"], onDelete = R)])
 data class Appointment(@PrimaryKey(autoGenerate = true) val appointmentId: Long = 0, val patientId: Long, val doctorId: Long,
-                       val apptDatetime: String, val status: String = "запланирован", val reason: String?)
+                       val apptDatetime: String, val status: String = "запланирован", val reason: String?,
+                       val room: String? = null, val arrivedAt: String? = null)
 
 @Entity(tableName = "medical_records", indices = [Index("patientId"), Index("doctorId"), Index("diagnosisId")],
     foreignKeys = [ForeignKey(Patient::class, ["patientId"], ["patientId"], onDelete = C),
@@ -129,7 +130,7 @@ abstract class HospitalizationDao {
     entities = [Department::class, Doctor::class, Patient::class, Ward::class, Bed::class, Diagnosis::class,
         Hospitalization::class, Appointment::class, MedicalRecord::class, Prescription::class,
         MedProcedure::class, ProcedurePerformed::class, LabTest::class],
-    version = 1, exportSchema = false)
+    version = 2, exportSchema = false)
 abstract class AppDb : RoomDatabase() {
     abstract fun departments(): DepartmentDao
     abstract fun doctors(): DoctorDao
@@ -149,6 +150,7 @@ abstract class AppDb : RoomDatabase() {
         @Volatile private var inst: AppDb? = null
         fun get(ctx: Context): AppDb = inst ?: synchronized(this) {
             inst ?: Room.databaseBuilder(ctx.applicationContext, AppDb::class.java, "hospital.db")
+                .fallbackToDestructiveMigration()
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         db.execSQL("INSERT INTO departments(name,floor,phone) VALUES ('Терапевтическое отделение',2,'+7-495-100-01-01'),('Хирургическое отделение',3,'+7-495-100-01-02'),('Кардиологическое отделение',4,'+7-495-100-01-03'),('Регистратура',1,'+7-495-100-01-00')")
@@ -158,6 +160,7 @@ abstract class AppDb : RoomDatabase() {
                         db.execSQL("INSERT INTO beds(wardId,bedNumber,status) VALUES (1,1,'занята'),(1,2,'свободна'),(2,1,'занята'),(3,1,'свободна')")
                         db.execSQL("INSERT INTO diagnoses(name,icdCode) VALUES ('Острый бронхит','J20'),('Гипертоническая болезнь','I10'),('Аппендицит острый','K35')")
                         db.execSQL("INSERT INTO hospitalizations(patientId,bedId,doctorId,diagnosisId,admissionDate,dischargeDate,status) VALUES (1,1,1,1,'2026-09-01',NULL,'проходит лечение'),(3,3,2,3,'2026-08-20','2026-08-28','выписан')")
+                        db.execSQL("INSERT INTO appointments(patientId,doctorId,apptDatetime,status,reason,room,arrivedAt) VALUES (1,1,strftime('%Y-%m-%d','now','localtime')||' 10:00','запланирован','Бронхит, повторный приём','201',NULL),(2,1,strftime('%Y-%m-%d','now','localtime')||' 10:20','запланирован','Плановый осмотр','201',NULL),(3,1,strftime('%Y-%m-%d','now','localtime')||' 10:40','запланирован','Контроль после операции','201',NULL)")
                     }
                 }).build().also { inst = it }
         }
