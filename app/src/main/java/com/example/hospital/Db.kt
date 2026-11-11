@@ -92,7 +92,22 @@ suspend fun <T> BaseDao<T>.save(old: Any?, x: T) { if (old == null) insert(x) el
 @Dao interface WardDao : BaseDao<Ward> { @Query("SELECT * FROM wards ORDER BY wardNumber") fun all(): Flow<List<Ward>> }
 @Dao interface BedDao : BaseDao<Bed> { @Query("SELECT * FROM beds ORDER BY wardId, bedNumber") fun all(): Flow<List<Bed>> }
 @Dao interface DiagnosisDao : BaseDao<Diagnosis> { @Query("SELECT * FROM diagnoses ORDER BY name") fun all(): Flow<List<Diagnosis>> }
-@Dao interface AppointmentDao : BaseDao<Appointment> { @Query("SELECT * FROM appointments ORDER BY apptDatetime DESC") fun all(): Flow<List<Appointment>> }
+// Строка очереди врача: приём + данные пациента
+data class QueueRow(val appointmentId: Long, val fullName: String, val birthDate: String, val gender: String,
+                    val apptDatetime: String, val status: String, val reason: String?, val room: String?, val arrivedAt: String?)
+
+@Dao interface AppointmentDao : BaseDao<Appointment> {
+    @Query("SELECT * FROM appointments ORDER BY apptDatetime DESC") fun all(): Flow<List<Appointment>>
+    // Очередь врача за последний день, на который есть приёмы
+    @Query("SELECT a.appointmentId, p.fullName, p.birthDate, p.gender, a.apptDatetime, a.status, a.reason, a.room, a.arrivedAt " +
+        "FROM appointments a JOIN patients p ON p.patientId = a.patientId WHERE a.doctorId = :doctorId " +
+        "AND substr(a.apptDatetime,1,10) = (SELECT max(substr(apptDatetime,1,10)) FROM appointments WHERE doctorId = :doctorId) " +
+        "ORDER BY a.apptDatetime")
+    fun queue(doctorId: Long): Flow<List<QueueRow>>
+    @Query("UPDATE appointments SET status = :s, arrivedAt = :t WHERE appointmentId = :id") suspend fun setArrival(id: Long, s: String, t: String?)
+    @Query("UPDATE appointments SET status = :s WHERE appointmentId = :id") suspend fun setStatus(id: Long, s: String)
+    @Query("UPDATE appointments SET status = 'запланирован', arrivedAt = NULL WHERE doctorId = :doctorId") suspend fun resetQueue(doctorId: Long)
+}
 @Dao interface MedicalRecordDao : BaseDao<MedicalRecord> { @Query("SELECT * FROM medical_records ORDER BY recordDate DESC") fun all(): Flow<List<MedicalRecord>> }
 @Dao interface PrescriptionDao : BaseDao<Prescription> { @Query("SELECT * FROM prescriptions") fun all(): Flow<List<Prescription>> }
 @Dao interface ProcedureDao : BaseDao<MedProcedure> { @Query("SELECT * FROM procedures ORDER BY name") fun all(): Flow<List<MedProcedure>> }
@@ -130,7 +145,7 @@ abstract class HospitalizationDao {
     entities = [Department::class, Doctor::class, Patient::class, Ward::class, Bed::class, Diagnosis::class,
         Hospitalization::class, Appointment::class, MedicalRecord::class, Prescription::class,
         MedProcedure::class, ProcedurePerformed::class, LabTest::class],
-    version = 2, exportSchema = false)
+    version = 3, exportSchema = false)
 abstract class AppDb : RoomDatabase() {
     abstract fun departments(): DepartmentDao
     abstract fun doctors(): DoctorDao
@@ -161,6 +176,11 @@ abstract class AppDb : RoomDatabase() {
                         db.execSQL("INSERT INTO diagnoses(name,icdCode) VALUES ('Острый бронхит','J20'),('Гипертоническая болезнь','I10'),('Аппендицит острый','K35')")
                         db.execSQL("INSERT INTO hospitalizations(patientId,bedId,doctorId,diagnosisId,admissionDate,dischargeDate,status) VALUES (1,1,1,1,'2026-09-01',NULL,'проходит лечение'),(3,3,2,3,'2026-08-20','2026-08-28','выписан')")
                         db.execSQL("INSERT INTO appointments(patientId,doctorId,apptDatetime,status,reason,room,arrivedAt) VALUES (1,1,strftime('%Y-%m-%d','now','localtime')||' 10:00','запланирован','Бронхит, повторный приём','201',NULL),(2,1,strftime('%Y-%m-%d','now','localtime')||' 10:20','запланирован','Плановый осмотр','201',NULL),(3,1,strftime('%Y-%m-%d','now','localtime')||' 10:40','запланирован','Контроль после операции','201',NULL)")
+                        db.execSQL("INSERT INTO medical_records(patientId,doctorId,diagnosisId,recordDate,notes) VALUES (1,1,1,'2026-08-25','Назначено лечение, повторный приём через 7 дней'),(3,2,3,'2026-08-20','Экстренная госпитализация, операция')")
+                        db.execSQL("INSERT INTO prescriptions(recordId,medicationName,dosage,durationDays) VALUES (1,'Амброксол','30 мг 3 раза в день',7),(1,'Парацетамол','500 мг при температуре',5)")
+                        db.execSQL("INSERT INTO procedures(name,cost) VALUES ('Аппендэктомия',45000.0),('ЭКГ',1500.0),('Общий анализ крови',800.0)")
+                        db.execSQL("INSERT INTO procedures_performed(hospitalizationId,procedureId,doctorId,perfDate) VALUES (2,1,2,'2026-08-20')")
+                        db.execSQL("INSERT INTO lab_tests(patientId,doctorId,testType,testDate,result) VALUES (1,1,'Общий анализ крови','2026-08-25','Лейкоциты повышены'),(3,2,'Общий анализ крови','2026-08-20','В пределах нормы')")
                     }
                 }).build().also { inst = it }
         }

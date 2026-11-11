@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -31,9 +32,12 @@ fun String.oneOf(name: String, vararg o: String) = trim().also { require(it in o
 
 @Composable
 fun App(db: AppDb) {
-    val tabs = listOf("Пациенты", "Врачи", "Отделения", "Приёмы", "Госпитализации")
-    var tab by remember { mutableIntStateOf(0) }
+    val tabs = listOf("Пациенты", "Врачи", "Отделения", "Приёмы", "Госпитализации", "Врач")
+    var tab by remember { mutableIntStateOf(5) }
+    val ctx = LocalContext.current
+    val exportScope = rememberCoroutineScope()
     Column(Modifier.statusBarsPadding()) {
+        OutlinedButton(onClick = { exportScope.launch { ExcelExporter.exportAndShare(ctx, db) } }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Выгрузить всё в Excel (13 таблиц)") }
         ScrollableTabRow(selectedTabIndex = tab) {
             tabs.forEachIndexed { i, t -> Tab(tab == i, { tab = i }, text = { Text(t) }) }
         }
@@ -63,7 +67,7 @@ fun App(db: AppDb) {
                     { o, v -> d.save(o, Appointment(o?.appointmentId ?: 0, v[0].num("ID пациента"), v[1].num("ID врача"), v[2].req("Дата"),
                         v[3].oneOf("Статус", "запланирован", "пришёл", "завершён", "отменён", "не явился"), v[4].opt(), v[5].opt(), v[6].opt())) },
                     { d.delete(it) }) }
-            else -> { val d = db.hospitalizations(); val l by d.all().collectAsState(emptyList())
+            4 -> { val d = db.hospitalizations(); val l by d.all().collectAsState(emptyList())
                 CrudScreen(l, listOf("ID пациента", "ID койки", "ID врача", "ID диагноза", "Дата поступления", "Дата выписки", "Статус (проходит лечение/выписан/переведён)"),
                     { "Пациент №${it.patientId} • ${it.status}" }, { "койка №${it.bedId}, врач №${it.doctorId}, с ${it.admissionDate}" },
                     { listOf(it.patientId.toString(), it.bedId.toString(), it.doctorId.toString(), it.diagnosisId?.toString() ?: "", it.admissionDate, it.dischargeDate ?: "", it.status) },
@@ -75,6 +79,7 @@ fun App(db: AppDb) {
                         if (o == null) d.admit(h) else d.updateAndSync(h)   // транзакции
                     },
                     { d.delete(it) }) }
+            else -> DoctorScreen(db)
         }
     }
 }
