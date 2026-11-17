@@ -1,8 +1,15 @@
 package com.example.hospital
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +27,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val db = AppDb.get(this)
+        // разрешение на уведомления (Android 13+)
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) {}.launch(Manifest.permission.POST_NOTIFICATIONS)
+        // при любом изменении приёмов пересоздаём напоминания
+        lifecycleScope.launch { db.appointments().all().collect { ReminderScheduler.syncAll(applicationContext, db) } }
         setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { App(db) } } }
     }
 }
@@ -32,12 +44,20 @@ fun String.oneOf(name: String, vararg o: String) = trim().also { require(it in o
 
 @Composable
 fun App(db: AppDb) {
-    val tabs = listOf("Пациенты", "Врачи", "Отделения", "Приёмы", "Госпитализации", "Врач")
+    val tabs = listOf("Пациенты", "Врачи", "Отделения", "Приёмы", "Госпитализации", "Врач", "Запись", "Расписание", "Загрузка")
     var tab by remember { mutableIntStateOf(5) }
     val ctx = LocalContext.current
     val exportScope = rememberCoroutineScope()
+    var importMsg by remember { mutableStateOf<String?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) exportScope.launch { importMsg = ExcelImporter.importPatients(ctx, db, uri) }
+    }
     Column(Modifier.statusBarsPadding()) {
-        OutlinedButton(onClick = { exportScope.launch { ExcelExporter.exportAndShare(ctx, db) } }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Выгрузить всё в Excel (13 таблиц)") }
+        Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { exportScope.launch { ExcelExporter.exportAndShare(ctx, db) } }) { Text("Выгрузка в Excel") }
+            OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Пациенты из Excel") }
+        }
+        importMsg?.let { AlertDialog(onDismissRequest = { importMsg = null }, confirmButton = { TextButton({ importMsg = null }) { Text("OK") } }, title = { Text("Загрузка пациентов") }, text = { Text(it) }) }
         ScrollableTabRow(selectedTabIndex = tab) {
             tabs.forEachIndexed { i, t -> Tab(tab == i, { tab = i }, text = { Text(t) }) }
         }
@@ -49,10 +69,13 @@ fun App(db: AppDb) {
                     { o, v -> d.save(o, Patient(o?.patientId ?: 0, v[0].req("ФИО"), v[1].req("Дата рождения"), v[2].oneOf("Пол", "М", "Ж"), v[3].opt(), v[4].opt(), v[5].opt())) },
                     { d.delete(it) }) }
             1 -> { val d = db.doctors(); val l by d.all().collectAsState(emptyList())
-                CrudScreen(l, listOf("ФИО", "Специализация", "ID отделения", "Телефон", "Email", "Дата найма"),
+                CrudScreen(l, listOf("ФИО", "Специализация", "ID отделения", "Телефон", "Email", "Дата найма", "Рабочие дни (1=пн ... 7=вс, через запятую)", "Начало работы (ЧЧ:ММ)", "Конец работы (ЧЧ:ММ)", "Кабинет"),
                     { it.fullName }, { "${it.specialization} • отделение №${it.departmentId}" },
-                    { listOf(it.fullName, it.specialization, it.departmentId.toString(), it.phone ?: "", it.email ?: "", it.hireDate ?: "") },
-                    { o, v -> d.save(o, Doctor(o?.doctorId ?: 0, v[2].num("ID отделения"), v[0].req("ФИО"), v[1].req("Специализация"), v[3].opt(), v[4].opt(), v[5].opt())) },
+                    { listOf(it.fullName, it.specialization, it.departmentId.toString(), it.phone ?: "", it.email ?: "", it.hireDate ?: "", it.workDays, it.workStart, it.workEnd, it.room ?: "") },
+                    { o, v -> d.save(o, Doctor(o?.doctorId ?: 0, v[2].num("ID отделения"), v[0].req("ФИО"), v[1].req("Специализация"), v[3].opt(), v[4].opt(), v[5].opt(),
+                        v[6].trim().also { w -> require(Regex("^[1-7](,[1-7])*$").matches(w)) { "Рабочие дни: числа 1-7 через запятую, например 1,2,3,4,5" } },
+                        v[7].trim().also { require(Regex("^\\d{2}:\\d{2}$").matches(it)) { "Начало работы: ЧЧ:ММ" } },
+                        v[8].trim().also { require(Regex("^\\d{2}:\\d{2}$").matches(it)) { "Конец работы: ЧЧ:ММ" } }, v[9].opt())) },
                     { d.delete(it) }) }
             2 -> { val d = db.departments(); val l by d.all().collectAsState(emptyList())
                 CrudScreen(l, listOf("Название", "Этаж", "Телефон"),
@@ -64,7 +87,7 @@ fun App(db: AppDb) {
                 CrudScreen(l, listOf("ID пациента", "ID врача", "Дата и время (ГГГГ-ММ-ДД ЧЧ:ММ)", "Статус (запланирован/пришёл/завершён/отменён/не явился)", "Причина", "Кабинет", "Время прихода (ЧЧ:ММ)"),
                     { "${it.apptDatetime} • ${it.status}" }, { "пациент №${it.patientId}, врач №${it.doctorId}. ${it.reason ?: ""}" },
                     { listOf(it.patientId.toString(), it.doctorId.toString(), it.apptDatetime, it.status, it.reason ?: "", it.room ?: "", it.arrivedAt ?: "") },
-                    { o, v -> d.save(o, Appointment(o?.appointmentId ?: 0, v[0].num("ID пациента"), v[1].num("ID врача"), v[2].req("Дата"),
+                    { o, v -> db.book(Appointment(o?.appointmentId ?: 0, v[0].num("ID пациента"), v[1].num("ID врача"), v[2].req("Дата"),
                         v[3].oneOf("Статус", "запланирован", "пришёл", "завершён", "отменён", "не явился"), v[4].opt(), v[5].opt(), v[6].opt())) },
                     { d.delete(it) }) }
             4 -> { val d = db.hospitalizations(); val l by d.all().collectAsState(emptyList())
@@ -79,7 +102,10 @@ fun App(db: AppDb) {
                         if (o == null) d.admit(h) else d.updateAndSync(h)   // транзакции
                     },
                     { d.delete(it) }) }
-            else -> DoctorScreen(db)
+            5 -> DoctorScreen(db)
+            6 -> BookingScreen(db)
+            7 -> ScheduleScreen(db)
+            else -> HeatmapScreen(db)
         }
     }
 }

@@ -30,7 +30,7 @@ object ExcelExporter {
 
     private val tables = listOf(
         T("departments", "Отделения", listOf("departmentId" to "ID отделения", "name" to "Название", "floor" to "Этаж", "phone" to "Телефон")),
-        T("doctors", "Врачи", listOf("doctorId" to "ID врача", "departmentId" to "ID отделения", "fullName" to "ФИО", "specialization" to "Специализация", "phone" to "Телефон", "email" to "Email", "hireDate" to "Дата найма")),
+        T("doctors", "Врачи", listOf("doctorId" to "ID врача", "departmentId" to "ID отделения", "fullName" to "ФИО", "specialization" to "Специализация", "phone" to "Телефон", "email" to "Email", "hireDate" to "Дата найма", "workDays" to "Рабочие дни", "workStart" to "Начало работы", "workEnd" to "Конец работы", "room" to "Кабинет")),
         T("patients", "Пациенты", listOf("patientId" to "ID пациента", "fullName" to "ФИО", "birthDate" to "Дата рождения", "gender" to "Пол", "address" to "Адрес", "phone" to "Телефон", "policyNumber" to "Номер полиса ОМС")),
         T("wards", "Палаты", listOf("wardId" to "ID палаты", "departmentId" to "ID отделения", "wardNumber" to "Номер палаты", "capacity" to "Вместимость")),
         T("beds", "Койки", listOf("bedId" to "ID койки", "wardId" to "ID палаты", "bedNumber" to "Номер койки", "status" to "Статус")),
